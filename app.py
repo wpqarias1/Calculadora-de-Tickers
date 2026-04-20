@@ -5,7 +5,7 @@ import pandas as pd
 # 1. CONFIGURACIÓN DE PÁGINA
 st.set_page_config(page_title="Executive Investor Twin", page_icon="📈", layout="wide")
 
-# 2. ESTILOS CSS REFORZADOS
+# 2. ESTILOS CSS
 st.markdown("""
 <style>
     .stApp { background-color: #f4f7f6; }
@@ -38,10 +38,9 @@ st.markdown("""
 
 st.markdown("<h1>🚀 Executive Investor Twin</h1>", unsafe_allow_html=True)
 
-# 3. BARRA DE BÚSQUEDA (Ticker Selector)
-ticker_input = st.text_input("🔍 Ingresa el Ticker (ej: TSLA, AAPL, NVDA, MSFT):", value="TSLA").upper()
+# 3. BARRA DE BÚSQUEDA
+ticker_input = st.text_input("🔍 Ingresa el Ticker (ej: TSLA, AAPL, NVDA):", value="TSLA").upper()
 
-# Función para convertir fecha a Formato Q
 def format_quarter(dt):
     quarter = (dt.month - 1) // 3 + 1
     return f"Q{quarter} {dt.year}"
@@ -49,22 +48,18 @@ def format_quarter(dt):
 if ticker_input:
     try:
         with st.spinner(f'Analizando {ticker_input}...'):
-            tk = yf.Ticker(ticker_input)
+            tk = yf.Ticker(ticker_symbol=ticker_input)
             df_res = tk.quarterly_financials
             df_bal = tk.quarterly_balance_sheet
             
-            # Limpieza y validación de etiquetas
             df_res.index = df_res.index.str.strip()
             df_bal.index = df_bal.index.str.strip()
             
-            if 'Total Revenue' not in df_res.index or 'Net Income' not in df_res.index:
-                st.warning(f"No hay suficientes datos financieros públicos para {ticker_input}.")
-            else:
+            if 'Total Revenue' in df_res.index:
                 ventas = df_res.loc['Total Revenue']
                 utilidad = df_res.loc['Net Income']
                 equity = df_bal.loc['Common Stock Equity'] if 'Common Stock Equity' in df_bal.index else df_bal.loc['Stockholders Equity']
                 
-                # Crecimiento QoQ
                 crecimiento = (ventas.pct_change(periods=-1) * 100).round(2)
 
                 st.subheader(f"Dashboard de Rentabilidad: {ticker_input}")
@@ -74,19 +69,22 @@ if ticker_input:
                     monto_b = round(ventas.iloc[i] / 1e9, 2)
                     porc_c = crecimiento.iloc[i]
                     
-                    # Cálculo ROE TTM (Manejo de data histórica corta)
                     u_ttm = utilidad.iloc[i : i+4].sum()
                     roe_ttm = round((u_ttm / equity.iloc[i]) * 100, 2)
                     
-                    # Lógica de Semáforos
-                    if pd.isna(porc_c): b_c, t_c = "bg-yellow", "N/A"
-                    elif porc_c < 5: b_c, t_c = "bg-red", "ALERTA"
-                    elif porc_c > 20: b_c, t_c = "bg-yellow", "ALTO"
-                    else: b_c, t_c = "bg-green", "OK"
+                    # NUEVA LÓGICA DE SEMÁFOROS (VENTAS)
+                    if pd.isna(porc_c): 
+                        b_c, t_c = "bg-yellow", "N/A"
+                    elif porc_c < 3.3: 
+                        b_c, t_c = "bg-red", "BAJO"
+                    elif porc_c > 5.0: 
+                        b_c, t_c = "bg-yellow", "ALTO"
+                    else: 
+                        b_c, t_c = "bg-green", "OK"
 
+                    # SEMÁFORO ROE (Se mantiene meta 12%)
                     b_r, t_r = ("bg-green", "EFICIENTE") if roe_ttm >= 12 else ("bg-red", "BAJO")
 
-                    # Tarjeta Ejecutiva
                     st.markdown(f"""
                     <div class="card">
                         <h3 style="margin:0 0 15px 0; color:#2d3748; font-size:20px;">📊 {fecha_q}</h3>
@@ -107,7 +105,4 @@ if ticker_input:
                             </div>
                         </div>
                     </div>
-                    """, unsafe_allow_html=True)
-
-    except Exception as e:
-        st.error(f"El ticker '{ticker_input}' no es válido o no tiene datos disponibles.")
+                    """,
