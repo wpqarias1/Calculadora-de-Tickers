@@ -1,11 +1,11 @@
-import streamlit as st
+iimport streamlit as st
 import yfinance as yf
 import pandas as pd
 
 # 1. CONFIGURACIÓN
 st.set_page_config(page_title="Executive Investor Twin", page_icon="📈", layout="wide")
 
-# 2. ESTILOS CSS (Ajustado para 5 métricas)
+# 2. ESTILOS CSS REFORZADOS (Optimizado para 5 métricas en móvil)
 st.markdown("""
 <style>
     .stApp { background-color: #f4f7f6; }
@@ -18,17 +18,18 @@ st.markdown("""
         margin-bottom: 20px;
         border-left: 8px solid #2d3748;
     }
-    .metric-grid { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
-    .metric-box { text-align: center; flex: 1; min-width: 70px; }
-    .value { font-size: 18px; font-weight: bold; color: #1a202c; margin: 0; }
+    .metric-grid { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+    .metric-box { text-align: center; flex: 1; min-width: 65px; }
+    .value { font-size: 17px; font-weight: bold; color: #1a202c; margin: 0; }
     .label { font-size: 9px; color: #718096; text-transform: uppercase; font-weight: 700; margin-bottom: 2px; }
     .badge {
-        padding: 2px 6px;
-        border-radius: 8px;
+        padding: 2px 5px;
+        border-radius: 6px;
         color: white;
-        font-size: 9px;
+        font-size: 8px;
         font-weight: bold;
         display: inline-block;
+        text-transform: uppercase;
     }
     .bg-red { background-color: #e53e3e; }
     .bg-green { background-color: #38a169; }
@@ -46,7 +47,7 @@ def format_quarter(dt):
 
 if t_input:
     try:
-        with st.spinner(f'Calculando Spread de Valor para {t_input}...'):
+        with st.spinner(f'Calculando Métricas TTM para {t_input}...'):
             tk = yf.Ticker(t_input)
             df_res = tk.quarterly_financials
             df_bal = tk.quarterly_balance_sheet
@@ -63,9 +64,8 @@ if t_input:
                 total_debt = df_bal.loc['Total Debt'] if 'Total Debt' in df_bal.index else 0
                 invested_cap = equity + total_debt
 
-                # Estimación de WACC (Simplificada para App)
-                # Costo de Equity (aprox 10%) y Deuda (basado en info de mercado)
-                risk_free = 0.042 # 4.2% aprox
+                # Estimación de WACC
+                risk_free = 0.042 
                 beta = info.get('beta', 1.2)
                 market_return = 0.10
                 cost_equity = risk_free + beta * (market_return - risk_free)
@@ -82,11 +82,13 @@ if t_input:
                     
                     # SEMÁFOROS
                     b_c = "bg-red" if porc_c < 3.3 else "bg-yellow" if porc_c > 5.0 else "bg-green"
-                    b_roe = "bg-green" if roe_ttm >= 12 else "bg-red"
+                    t_c = "ALERTA" if porc_c < 3.3 else "ALTO" if porc_c > 5.0 else "OK"
                     
-                    # REGLA SOLICITADA: ROIC vs WACC
+                    b_roe = "bg-green" if roe_ttm >= 12 else "bg-red"
+                    t_roe = "OK" if roe_ttm >= 12 else "BAJO"
+                    
                     b_roic_wacc = "bg-green" if roic > wacc_val else "bg-red"
-                    status_val = "CREA VALOR" if roic > wacc_val else "DESTRUYE"
+                    status_val = "CREA" if roic > wacc_val else "DESTRUYE"
 
                     st.markdown(f"""
                     <div class="card">
@@ -95,11 +97,11 @@ if t_input:
                             <div class="metric-box"><p class="label">Ventas</p><p class="value">${monto_b}B</p></div>
                             <div class="metric-box">
                                 <p class="label">Crec. QoQ</p><p class="value">{porc_c}%</p>
-                                <div class="badge {b_c}">OK</div>
+                                <div class="badge {b_c}">{t_c}</div>
                             </div>
                             <div class="metric-box">
                                 <p class="label">ROE TTM</p><p class="value">{roe_ttm}%</p>
-                                <div class="badge {b_roe}">RTB</div>
+                                <div class="badge {b_roe}">{t_roe}</div>
                             </div>
                             <div class="metric-box">
                                 <p class="label">WACC</p><p class="value">{wacc_val}%</p>
