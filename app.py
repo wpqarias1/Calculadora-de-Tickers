@@ -50,30 +50,36 @@ if t_input:
             rev = df_res.loc['Total Revenue']
             net_inc = df_res.loc['Net Income']
             op_inc = df_res.loc['Operating Income']
+            # Manejo de Gross Profit si no existe la fila directa
             gross_prof = df_res.loc['Gross Profit'] if 'Gross Profit' in df_res.index else rev
             equity = df_bal.loc['Common Stock Equity'] if 'Common Stock Equity' in df_bal.index else df_bal.loc['Stockholders Equity']
             total_debt = df_bal.loc['Total Debt'] if 'Total Debt' in df_bal.index else 0
             
+            # WACC Estimado
             wacc_val = round((0.042 + info.get('beta', 1.2) * (0.10 - 0.042)) * 100, 2)
             crecimiento = (rev.pct_change(periods=-1) * 100).round(2)
 
             for i in range(min(4, len(rev)-1)):
-                # Cálculos
+                # Cálculos de Márgenes
                 m_bruto = round((gross_prof.iloc[i] / rev.iloc[i]) * 100, 2)
                 m_op = round((op_inc.iloc[i] / rev.iloc[i]) * 100, 2)
                 m_neto = round((net_inc.iloc[i] / rev.iloc[i]) * 100, 2)
                 roe_ttm = round((net_inc.iloc[i:i+4].sum() / equity.iloc[i]) * 100, 2)
-                roic = round((op_inc.iloc[i:i+4].sum() / (equity.iloc[i] + total_debt.iloc[i])) * 100, 2)
                 
-                # Colores
+                # Invested Capital para ROIC
+                ic_reciente = equity.iloc[i] + total_debt.iloc[i] if isinstance(total_debt, pd.Series) else equity.iloc[i] + total_debt
+                roic = round((op_inc.iloc[i:i+4].sum() / ic_reciente) * 100, 2)
+                
+                # Semáforos Rentabilidad y Valor
                 c_crec = "bg-red" if crecimiento.iloc[i] < 3.3 else "bg-yellow" if crecimiento.iloc[i] > 5 else "bg-green"
                 c_roe = "bg-green" if roe_ttm >= 12 else "bg-red"
                 c_roic = "bg-green" if roic > wacc_val else "bg-red"
-                c_bruto = "bg-green" if m_bruto >= 40 else "bg-red"
-                c_op = "bg-green" if m_op >= 20 else "bg-red"
-                c_neto = "bg-green" if m_neto >= 15 else "bg-red"
+                
+                # SEMÁFOROS DE EFICIENCIA ACTUALIZADOS
+                c_bruto = "bg-green" if m_bruto >= 20 else "bg-red"
+                c_op = "bg-green" if m_op >= 10 else "bg-red"
+                c_neto = "bg-green" if m_neto >= 5 else "bg-red"
 
-                # Renderizado por partes para evitar el error de la imagen
                 with st.container():
                     st.markdown(f"""
                     <div class="card">
@@ -86,9 +92,9 @@ if t_input:
                         </div>
                         <hr style="margin:10px 0; border:0; border-top:1px solid #eee;">
                         <div class="metric-row">
-                            <div class="metric-box"><span class="label">M. Bruto (>40%)</span><span class="value">{m_bruto}%</span><span class="badge {c_bruto}">{m_bruto>=40 and 'OK' or 'BAJO'}</span></div>
-                            <div class="metric-box"><span class="label">M. Op (>20%)</span><span class="value">{m_op}%</span><span class="badge {c_op}">{m_op>=20 and 'OK' or 'ALERTA'}</span></div>
-                            <div class="metric-box"><span class="label">M. Neto (>15%)</span><span class="value">{m_neto}%</span><span class="badge {c_neto}">{m_neto>=15 and 'OK' or 'ALERTA'}</span></div>
+                            <div class="metric-box"><span class="label">M. Bruto (>20%)</span><span class="value">{m_bruto}%</span><span class="badge {c_bruto}">{m_bruto>=20 and 'OK' or 'BAJO'}</span></div>
+                            <div class="metric-box"><span class="label">M. Op (>10%)</span><span class="value">{m_op}%</span><span class="badge {c_op}">{m_op>=10 and 'OK' or 'ALERTA'}</span></div>
+                            <div class="metric-box"><span class="label">M. Neto (>5%)</span><span class="value">{m_neto}%</span><span class="badge {c_neto}">{m_neto>=5 and 'OK' or 'ALERTA'}</span></div>
                             <div class="metric-box"><span class="label">WACC</span><span class="value">{wacc_val}%</span></div>
                         </div>
                     </div>
