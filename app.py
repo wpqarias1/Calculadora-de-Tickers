@@ -5,7 +5,7 @@ import pandas as pd
 # 1. CONFIGURACIÓN
 st.set_page_config(page_title="Executive Investor Twin", page_icon="📈", layout="wide")
 
-# 2. ESTILOS CSS REFORZADOS (Ajustado para 4 métricas)
+# 2. ESTILOS CSS (Ajustado para 5 métricas)
 st.markdown("""
 <style>
     .stApp { background-color: #f4f7f6; }
@@ -18,15 +18,15 @@ st.markdown("""
         margin-bottom: 20px;
         border-left: 8px solid #2d3748;
     }
-    .metric-grid { display: flex; justify-content: space-between; flex-wrap: wrap; }
-    .metric-box { text-align: center; width: 24%; min-width: 80px; }
-    .value { font-size: 20px; font-weight: bold; color: #1a202c; margin: 0; }
-    .label { font-size: 10px; color: #718096; text-transform: uppercase; font-weight: 600; margin-bottom: 2px; }
+    .metric-grid { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
+    .metric-box { text-align: center; flex: 1; min-width: 70px; }
+    .value { font-size: 18px; font-weight: bold; color: #1a202c; margin: 0; }
+    .label { font-size: 9px; color: #718096; text-transform: uppercase; font-weight: 700; margin-bottom: 2px; }
     .badge {
-        padding: 2px 8px;
-        border-radius: 10px;
+        padding: 2px 6px;
+        border-radius: 8px;
         color: white;
-        font-size: 10px;
+        font-size: 9px;
         font-weight: bold;
         display: inline-block;
     }
@@ -46,10 +46,11 @@ def format_quarter(dt):
 
 if t_input:
     try:
-        with st.spinner(f'Calculando ROIC para {t_input}...'):
+        with st.spinner(f'Calculando Spread de Valor para {t_input}...'):
             tk = yf.Ticker(t_input)
             df_res = tk.quarterly_financials
             df_bal = tk.quarterly_balance_sheet
+            info = tk.info
             
             df_res.index = df_res.index.str.strip()
             df_bal.index = df_bal.index.str.strip()
@@ -59,60 +60,53 @@ if t_input:
                 utilidad = df_res.loc['Net Income']
                 op_income = df_res.loc['Operating Income']
                 equity = df_bal.loc['Common Stock Equity'] if 'Common Stock Equity' in df_bal.index else df_bal.loc['Stockholders Equity']
-                
-                # Para ROIC: Deuda Total + Equity
                 total_debt = df_bal.loc['Total Debt'] if 'Total Debt' in df_bal.index else 0
                 invested_cap = equity + total_debt
 
-                crecimiento = (ventas.pct_change(periods=-1) * 100).round(2)
+                # Estimación de WACC (Simplificada para App)
+                # Costo de Equity (aprox 10%) y Deuda (basado en info de mercado)
+                risk_free = 0.042 # 4.2% aprox
+                beta = info.get('beta', 1.2)
+                market_return = 0.10
+                cost_equity = risk_free + beta * (market_return - risk_free)
+                wacc_val = round(cost_equity * 100, 2) 
 
-                st.subheader(f"Análisis Multidimensional: {t_input}")
+                crecimiento = (ventas.pct_change(periods=-1) * 100).round(2)
 
                 for i in range(min(4, len(ventas)-1)):
                     fecha_q = format_quarter(ventas.index[i])
                     monto_b = round(ventas.iloc[i] / 1e9, 2)
                     porc_c = crecimiento.iloc[i]
+                    roe_ttm = round((utilidad.iloc[i:i+4].sum() / equity.iloc[i]) * 100, 2)
+                    roic = round((op_income.iloc[i:i+4].sum() / invested_cap.iloc[i]) * 100, 2)
                     
-                    # ROE TTM
-                    u_ttm = utilidad.iloc[i : i+4].sum()
-                    roe_ttm = round((u_ttm / equity.iloc[i]) * 100, 2)
-                    
-                    # ROIC TTM (Simplificado: Utilidad Operativa TTM / Capital Invertido)
-                    op_ttm = op_income.iloc[i : i+4].sum()
-                    roic = round((op_ttm / invested_cap.iloc[i]) * 100, 2)
-                    
-                    # Semáforo Ventas (Tus reglas 3.3% - 5%)
-                    if pd.isna(porc_c): b_c, t_c = "bg-yellow", "N/A"
-                    elif porc_c < 3.3: b_c, t_c = "bg-red", "BAJO"
-                    elif porc_c > 5.0: b_c, t_c = "bg-yellow", "ALTO"
-                    else: b_c, t_c = "bg-green", "OK"
-
-                    # Semáforos Rentabilidad
+                    # SEMÁFOROS
+                    b_c = "bg-red" if porc_c < 3.3 else "bg-yellow" if porc_c > 5.0 else "bg-green"
                     b_roe = "bg-green" if roe_ttm >= 12 else "bg-red"
-                    b_roic = "bg-green" if roic >= 10 else "bg-red"
+                    
+                    # REGLA SOLICITADA: ROIC vs WACC
+                    b_roic_wacc = "bg-green" if roic > wacc_val else "bg-red"
+                    status_val = "CREA VALOR" if roic > wacc_val else "DESTRUYE"
 
                     st.markdown(f"""
                     <div class="card">
-                        <h3 style="margin:0 0 10px 0; color:#2d3748; font-size:18px;">📊 {fecha_q}</h3>
+                        <h3 style="margin:0 0 10px 0; color:#2d3748; font-size:16px;">📊 {fecha_q}</h3>
                         <div class="metric-grid">
+                            <div class="metric-box"><p class="label">Ventas</p><p class="value">${monto_b}B</p></div>
                             <div class="metric-box">
-                                <p class="label">Ventas</p>
-                                <p class="value">${monto_b}B</p>
+                                <p class="label">Crec. QoQ</p><p class="value">{porc_c}%</p>
+                                <div class="badge {b_c}">OK</div>
                             </div>
                             <div class="metric-box">
-                                <p class="label">Crec. QoQ</p>
-                                <p class="value">{porc_c}%</p>
-                                <div class="badge {b_c}">{t_c}</div>
+                                <p class="label">ROE TTM</p><p class="value">{roe_ttm}%</p>
+                                <div class="badge {b_roe}">RTB</div>
                             </div>
                             <div class="metric-box">
-                                <p class="label">ROE TTM</p>
-                                <p class="value">{roe_ttm}%</p>
-                                <div class="badge {b_roe}">{roe_ttm >= 12 and 'OK' or 'BAJO'}</div>
+                                <p class="label">WACC</p><p class="value">{wacc_val}%</p>
                             </div>
                             <div class="metric-box">
-                                <p class="label">ROIC TTM</p>
-                                <p class="value">{roic}%</p>
-                                <div class="badge {b_roic}">{roic >= 10 and 'OK' or 'ALERTA'}</div>
+                                <p class="label">ROIC vs WACC</p><p class="value">{roic}%</p>
+                                <div class="badge {b_roic_wacc}">{status_val}</div>
                             </div>
                         </div>
                     </div>
