@@ -2,93 +2,122 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 
-# 1. CONFIGURACIÓN Y CACHÉ (La solución al Rate Limit)
+# 1. CONFIGURACIÓN DE PÁGINA
 st.set_page_config(page_title="Executive Investor Twin", page_icon="📈", layout="wide")
 
-# Función con caché para no saturar a Yahoo Finance
-@st.cache_data(ttl=3600) # Guarda los datos por 1 hora (3600 segundos)
-def get_stock_data(ticker):
-    tk = yf.Ticker(ticker)
-    # Forzamos la descarga de lo necesario
-    res = tk.quarterly_financials
-    bal = tk.quarterly_balance_sheet
-    inf = tk.info
-    return res, bal, inf
+# 2. MOTOR DE DATOS CON PROTECCIÓN (Caché de 24h)
+@st.cache_data(ttl=86400)
+def get_executive_data(ticker):
+    """Descarga centralizada para evitar bloqueos por exceso de consultas."""
+    try:
+        tk = yf.Ticker(ticker)
+        data = {
+            "info": tk.info,
+            "financials": tk.quarterly_financials,
+            "balance": tk.quarterly_balance_sheet,
+            "cashflow": tk.quarterly_cashflow
+        }
+        return data
+    except Exception:
+        return None
 
-# 2. ESTILOS CSS
+def safe_get(df, keys, default=0):
+    """Evita KeyError buscando múltiples variantes de nombres contables."""
+    if df is None or df.empty:
+        return pd.Series([default] * 4)
+    for key in keys:
+        if key in df.index:
+            return df.loc[key]
+    return pd.Series([default] * len(df.columns), index=df.columns)
+
+# 3. ESTILOS CSS (UI Ejecutiva)
 st.markdown("""
 <style>
-    .stApp { background-color: #f4f7f6; }
+    .stApp { background-color: #f8fafc; }
     .card {
-        background-color: white; padding: 15px; border-radius: 12px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05); margin-bottom: 20px;
-        border-left: 6px solid #2d3748;
+        background-color: white; padding: 20px; border-radius: 10px;
+        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); margin-bottom: 25px;
+        border-top: 4px solid #1e293b;
     }
-    .metric-row { display: flex; justify-content: space-between; margin-bottom: 10px; text-align: center; }
-    .metric-box { flex: 1; }
-    .label { font-size: 10px; color: #718096; text-transform: uppercase; font-weight: bold; }
-    .value { font-size: 18px; font-weight: bold; color: #1a202c; display: block; }
-    .badge { padding: 2px 8px; border-radius: 4px; color: white; font-size: 10px; font-weight: bold; text-transform: uppercase; }
-    .bg-red { background-color: #e53e3e; }
-    .bg-green { background-color: #38a169; }
-    .bg-yellow { background-color: #d69e2e; }
+    .metric-title { font-size: 14px; font-weight: 700; color: #64748b; margin-bottom: 15px; }
+    .value-main { font-size: 24px; font-weight: 800; color: #0f172a; }
+    .status-badge { padding: 4px 10px; border-radius: 5px; font-size: 11px; font-weight: 700; }
+    .bg-ok { background-color: #dcfce7; color: #166534; }
+    .bg-alert { background-color: #fee2e2; color: #991b1b; }
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🚀 Executive Investor Twin")
-
-t_input = st.text_input("🔍 Ingresa el Ticker:", value="TSLA").upper()
+# 4. DASHBOARD PRINCIPAL
+st.title("📈 Executive Investor Twin v2.0")
+t_input = st.text_input("Ingrese Ticker (ej. TSLA, AAPL, MSFT):", value="TSLA").upper()
 
 if t_input:
-    try:
-        # Llamada a la función con caché
-        df_res, df_bal, info = get_stock_data(t_input)
+    raw_data = get_executive_data(t_input)
+    
+    if raw_data and not raw_data["financials"].empty:
+        info = raw_data["info"]
+        df_res = raw_data["financials"]
+        df_bal = raw_data["balance"]
+
+        # Extracción segura de métricas clave
+        rev = safe_get(df_res, ['Total Revenue', 'Operating Revenue'])
+        net_inc = safe_get(df_res, ['Net Income'])
+        op_inc = safe_get(df_res, ['Operating Income'])
+        equity = safe_get(df_bal, ['Stockholders Equity', 'Total Equity Gross Minority Interest'])
+        total_debt = safe_get(df_bal, ['Total Debt'], default=0)
+        cash = safe_get(df_bal, ['Cash And Cash Equivalents'], default=0)
+
+        # Lógica Financiera: WACC Estimado
+        beta = info.get('beta', 1.2)
+        ke = 0.043 + (beta * 0.055) # Costo Equity (Rf + Beta * ERP)
+        mkt_cap = info.get('marketCap', 1)
+        d_val = total_debt.iloc[0] if isinstance(total_debt, pd.Series) else 0
+        v_val = mkt_cap + d_val
+        tax_rate = 0.21
+        wacc = ((mkt_cap/v_val) * ke) + ((d_val/v_val) * 0.06 * (1 - tax_rate))
+
+        # Renderizado de Análisis Trimestral
+        st.subheader(f"Análisis de Creación de Valor: {info.get('longName', t_input)}")
         
-        if not df_res.empty:
-            df_res.index = df_res.index.str.strip()
-            df_bal.index = df_bal.index.str.strip()
+        for i in range(min(4, len(rev)-1)):
+            # Cálculo de ROIC TTM (Simplificado para el Dashboard)
+            oi_ttm = op_inc.iloc[i:i+4].sum()
+            ic = equity.iloc[i] + d_val - cash.iloc[i]
+            roic = (oi_ttm * (1 - tax_rate)) / ic if ic > 0 else 0
             
-            rev = df_res.loc['Total Revenue']
-            net_inc = df_res.loc['Net Income']
-            op_inc = df_res.loc['Operating Income']
-            gross_prof = df_res.loc['Gross Profit'] if 'Gross Profit' in df_res.index else rev
-            equity = df_bal.loc['Common Stock Equity'] if 'Common Stock Equity' in df_bal.index else df_bal.loc['Stockholders Equity']
-            total_debt = df_bal.loc['Total Debt'] if 'Total Debt' in df_bal.index else 0
+            crecimiento = ((rev.iloc[i] / rev.iloc[i+1]) - 1) * 100
+            m_op = (op_inc.iloc[i] / rev.iloc[i]) * 100
             
-            wacc_val = round((0.042 + info.get('beta', 1.2) * (0.10 - 0.042)) * 100, 2)
-            crecimiento = (rev.pct_change(periods=-1) * 100).round(2)
-
-            for i in range(min(4, len(rev)-1)):
-                m_bruto = round((gross_prof.iloc[i] / rev.iloc[i]) * 100, 2)
-                m_op = round((op_inc.iloc[i] / rev.iloc[i]) * 100, 2)
-                m_neto = round((net_inc.iloc[i] / rev.iloc[i]) * 100, 2)
-                roe_ttm = round((net_inc.iloc[i:i+4].sum() / equity.iloc[i]) * 100, 2)
-                ic = equity.iloc[i] + (total_debt.iloc[i] if isinstance(total_debt, pd.Series) else total_debt)
-                roic = round((op_inc.iloc[i:i+4].sum() / ic) * 100, 2)
-                
-                # Colores (M. Neto > 5%)
-                c_crec = "bg-red" if crecimiento.iloc[i] < 3.3 else "bg-yellow" if crecimiento.iloc[i] > 5 else "bg-green"
-                c_roe = "bg-green" if roe_ttm >= 12 else "bg-red"
-                c_roic = "bg-green" if roic > wacc_val else "bg-red"
-                c_bruto = "bg-green" if m_bruto >= 20 else "bg-red"
-                c_op = "bg-green" if m_op >= 10 else "bg-red"
-                c_neto = "bg-green" if m_neto >= 5 else "bg-red"
-
-                st.markdown(f"""
-                <div class="card">
-                    <div style="font-weight:bold; margin-bottom:10px;">📊 Q{(rev.index[i].month-1)//3+1} {rev.index[i].year}</div>
-                    <div class="metric-row">
-                        <div class="metric-box"><span class="label">Ventas</span><span class="value">${round(rev.iloc[i]/1e9,1)}B</span></div>
-                        <div class="metric-box"><span class="label">Crec. QoQ</span><span class="value">{crecimiento.iloc[i]}%</span><span class="badge {c_crec}">STATUS</span></div>
-                        <div class="metric-box"><span class="label">ROE TTM</span><span class="value">{roe_ttm}%</span><span class="badge {c_roe}">ROE</span></div>
-                        <div class="metric-box"><span class="label">ROIC/WACC</span><span class="value">{roic}%</span><span class="badge {c_roic}">{roic>wacc_val and 'CREA' or 'DESTRUYE'}</span></div>
+            st.markdown(f"""
+            <div class="card">
+                <div class="metric-title">PERIODO: Q{(rev.index[i].month-1)//3+1} {rev.index[i].year}</div>
+                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; text-align: center;">
+                    <div>
+                        <div style="color:#64748b; font-size:12px;">REVENUE</div>
+                        <div class="value-main">${rev.iloc[i]/1e9:.2f}B</div>
+                        <span class="status-badge {'bg-ok' if crecimiento > 5 else 'bg-alert'}">{crecimiento:.1f}% QoQ</span>
                     </div>
-                    <hr style="margin:10px 0; border:0; border-top:1px solid #eee;">
-                    <div class="metric-row">
-                        <div class="metric-box"><span class="label">M. Bruto (>20%)</span><span class="value">{m_bruto}%</span><span class="badge {c_bruto}">{m_bruto>=20 and 'OK' or 'BAJO'}</span></div>
-                        <div class="metric-box"><span class="label">M. Op (>10%)</span><span class="value">{m_op}%</span><span class="badge {c_op}">{m_op>=10 and 'OK' or 'ALERTA'}</span></div>
-                        <div class="metric-box"><span class="label">M. Neto (>5%)</span><span class="value">{m_neto}%</span><span class="badge {c_neto}">{m_neto>=5 and 'OK' or 'ALERTA'}</span></div>
-                        <div class="metric-box"><span class="label">WACC</span><span class="value">{wacc_val}%</span></div>
+                    <div>
+                        <div style="color:#64748b; font-size:12px;">M. OPERATIVO</div>
+                        <div class="value-main">{m_op:.1f}%</div>
+                        <span class="status-badge {'bg-ok' if m_op > 15 else 'bg-alert'}">{'SALUDABLE' if m_op > 15 else 'BAJO'}</span>
+                    </div>
+                    <div>
+                        <div style="color:#64748b; font-size:12px;">ROIC (TTM)</div>
+                        <div class="value-main">{roic*100:.1f}%</div>
+                        <span class="status-badge {'bg-ok' if roic > wacc else 'bg-alert'}">WACC: {wacc*100:.1f}%</span>
+                    </div>
+                    <div>
+                        <div style="color:#64748b; font-size:12px;">ESTRATEGIA</div>
+                        <div class="value-main" style="color:{'#166534' if roic > wacc else '#991b1b'}">
+                            {'CREA VALOR' if roic > wacc else 'DESTRUYE'}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+    else:
+        st.warning("No se pudieron recuperar datos. Yahoo Finance podría estar limitando la conexión o el Ticker es inválido.")
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
